@@ -1,0 +1,15 @@
+README.md
+pyproject.toml
+serial_agent/__init__.py
+serial_agent/agent.py
+serial_agent/api.py
+serial_agent/models.py
+serial_agent/parsing.py
+serial_agent/repository.py
+serial_agent/verification.py
+serial_ai_agent.egg-info/PKG-INFO
+serial_ai_agent.egg-info/SOURCES.txt
+serial_ai_agent.egg-info/dependency_links.txt
+serial_ai_agent.egg-info/requires.txt
+serial_ai_agent.egg-info/top_level.txt
+tests/test_parsing.py

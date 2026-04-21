@@ -1,0 +1,9 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+qdrant-client>=1.11
+pypdf>=4.3
+python-multipart>=0.0.9
+pydantic>=2.8
+
+[dev]
+pytest>=8.0

@@ -1,0 +1,13 @@
+Metadata-Version: 2.4
+Name: serial-ai-agent
+Version: 0.1.0
+Summary: Serial number location detection agent for PDF and Qdrant workflows
+Requires-Python: >=3.11
+Requires-Dist: fastapi>=0.115
+Requires-Dist: uvicorn[standard]>=0.30
+Requires-Dist: qdrant-client>=1.11
+Requires-Dist: pypdf>=4.3
+Requires-Dist: python-multipart>=0.0.9
+Requires-Dist: pydantic>=2.8
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0; extra == "dev"

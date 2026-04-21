@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "serial-ai-agent"
+version = "0.1.0"
+description = "Serial number location detection agent for PDF and Qdrant workflows"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "qdrant-client>=1.11",
+  "pypdf>=4.3",
+  "python-multipart>=0.0.9",
+  "pydantic>=2.8",
+  "pillow>=10.4",
+  "pytesseract>=0.3.13",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
