@@ -168,6 +168,21 @@ def test_ingest_pdf_route_uses_qdrant_collection_name_field():
     assert "asset_id" not in param_names
 
 
+def test_guide_route_has_explicit_response_and_error_schema():
+    try:
+        app = create_app()
+    except RuntimeError as exc:
+        if "fastapi is not installed" in str(exc):
+            pytest.skip("fastapi is not installed in this environment")
+        raise
+    route = next(route for route in app.routes if getattr(route, "path", None) == "/guide")
+
+    assert getattr(route, "response_model", None).__name__ == "GuideResponse"
+    assert 422 in getattr(route, "responses", {})
+    assert 503 in getattr(route, "responses", {})
+    assert route.responses[503]["model"].__name__ == "GuideErrorResponse"
+
+
 def test_qdrant_lookup_skips_invalid_point_ids():
     repo = QdrantSerialRepository(ensure_collection=False)
     called = []

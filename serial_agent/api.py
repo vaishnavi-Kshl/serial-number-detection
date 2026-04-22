@@ -53,6 +53,28 @@ class GuideRequest(AssetBaseRequest):
     pass
 
 
+class GuideResponse(BaseModel):
+    found: bool
+    needs_image: bool
+    image_id: Optional[str] = None
+    asset_id: Optional[str] = None
+    document_id: Optional[str] = None
+    asset_name: Optional[str] = None
+    model_number: Optional[str] = None
+    manufacturer: Optional[str] = None
+    category: Optional[str] = None
+    asset_location: Optional[str] = None
+    image_path: Optional[str] = None
+    ai_attributes: Optional[str] = None
+    message: str
+    set_name: Optional[str] = None
+    serial_number_location: Optional[str] = None
+
+
+class GuideErrorResponse(BaseModel):
+    detail: str
+
+
 def create_app():
     if FastAPI is None:
         raise RuntimeError("fastapi is not installed")
@@ -153,7 +175,19 @@ def create_app():
             except OSError:
                 pass
 
-    @app.post("/guide")
+    @app.post(
+        "/guide",
+        response_model=GuideResponse,
+        responses={
+            422: {
+                "description": "Validation error",
+            },
+            503: {
+                "model": GuideErrorResponse,
+                "description": "Qdrant or backend lookup failure",
+            }
+        },
+    )
     def guide(req: GuideRequest):
         try:
             result = agent.guide(
