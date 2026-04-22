@@ -50,7 +50,7 @@ class TrainB2Request(AssetBaseRequest):
 
 
 class GuideRequest(AssetBaseRequest):
-    question: Optional[str] = None
+    pass
 
 
 def create_app():
@@ -157,7 +157,7 @@ def create_app():
     def guide(req: GuideRequest):
         try:
             result = agent.guide(
-                req.question or "",
+                "",
                 asset_id=req.asset_id,
                 image_id=req.image_id,
                 asset_name=req.asset_name,
