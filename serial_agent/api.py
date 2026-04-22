@@ -41,12 +41,12 @@ class AssetBaseRequest(BaseModel):
 
 
 class TrainB1Request(AssetBaseRequest):
-    serial_number_series: str
+    serial_number_location: str
+    location_guide: Optional[str] = None
 
 
 class TrainB2Request(AssetBaseRequest):
-    serial_number_location: str
-    location_guide: Optional[str] = None
+    serial_number_series: str
 
 
 class GuideRequest(AssetBaseRequest):
@@ -75,7 +75,12 @@ def create_app():
 
     @app.post("/train/b1")
     def train_b1(req: TrainB1Request):
-        record = _build_record(req, serial_number_series=req.serial_number_series, record_set="b1")
+        record = _build_record(
+            req,
+            serial_number_location=req.serial_number_location,
+            serial_number_guide=req.location_guide,
+            record_set="b1",
+        )
         saved = agent.train_b1(record)
         return _record_response(saved)
 
@@ -89,8 +94,7 @@ def create_app():
     def train_b2(req: TrainB2Request):
         record = _build_record(
             req,
-            serial_number_location=req.serial_number_location,
-            serial_number_guide=req.location_guide,
+            serial_number_series=req.serial_number_series,
             record_set="b2",
         )
         saved = agent.train_b2(record)
@@ -99,7 +103,7 @@ def create_app():
     @app.post("/ingest/pdf")
     async def ingest_pdf(
         file: UploadFile = File(...),
-        asset_id: Optional[str] = Form(None),
+        qdrant_collection_name: Optional[str] = Form(None),
     ):
         suffix = os.path.splitext(file.filename or "asset.pdf")[1] or ".pdf"
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
@@ -107,11 +111,15 @@ def create_app():
             temp_path = tmp.name
         try:
             try:
-                records = agent.ingest_pdf(temp_path, asset_id=asset_id, source_name=file.filename)
+                records = agent.ingest_pdf(
+                    temp_path,
+                    collection_name=qdrant_collection_name,
+                    source_name=file.filename,
+                )
                 stored_in = []
-                if any(record.serial_number_series for record in records):
-                    stored_in.append("b1")
                 if any(record.serial_number_location or record.serial_number_guide for record in records):
+                    stored_in.append("b1")
+                if any(record.serial_number_series for record in records):
                     stored_in.append("b2")
                 return {
                     "document_id": records[0].document_id if records else None,

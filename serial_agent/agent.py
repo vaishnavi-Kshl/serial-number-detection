@@ -36,11 +36,15 @@ class SerialNumberAgent:
         pdf_path: str,
         *,
         asset_id: Optional[str] = None,
+        collection_name: Optional[str] = None,
         source_name: Optional[str] = None,
     ) -> list[AssetRecord]:
         records = parse_pdf_pages(pdf_path, document_id=asset_id, source_name=source_name)
         for record in records:
-            self.repository.upsert(record)
+            if collection_name:
+                self.repository.upsert_collection(collection_name, record)
+            else:
+                self.repository.upsert(record)
         return records
 
     def guide(self, question: str, **kwargs) -> LookupResult:
@@ -49,12 +53,12 @@ class SerialNumberAgent:
         location_record = self._best_document_record(
             asset_record.asset_id if asset_record else query.asset_id or query.image_id,
             query,
-            set_name="b2",
+            set_name="b1",
         )
         if not location_record and not asset_record:
             return LookupResult(
                 found=False,
-                message="No matching asset found in Qdrant set b2. Add the asset location guide first.",
+                message="No matching asset found in Qdrant set b1. Add the asset location guide first.",
             )
 
         merged_asset = _merge_asset_context(asset_record, location_record)
@@ -62,7 +66,7 @@ class SerialNumberAgent:
         if not location_record and asset_record:
             guide_text = (
                 f"{guide_text}. "
-                "No matching serial-number location guide was found in Qdrant set b2."
+                "No matching serial-number location guide was found in Qdrant set b1."
             )
         return LookupResult(
             found=bool(location_record),
@@ -79,7 +83,7 @@ class SerialNumberAgent:
         except Exception:
             return LookupResult(
                 found=False,
-                message="No matching asset found in Qdrant set b1. Add the serial number series first.",
+                message="No matching asset found in Qdrant set b2. Add the serial number series first.",
                 asset=asset_record,
                 serial_extracted=None,
                 verified=False,
@@ -88,7 +92,7 @@ class SerialNumberAgent:
         if not extracted_serial:
             return LookupResult(
                 found=False,
-                message="No matching asset found in Qdrant set b1. Add the serial number series first.",
+                message="No matching asset found in Qdrant set b2. Add the serial number series first.",
                 asset=asset_record,
                 serial_extracted=None,
                 verified=False,
@@ -97,12 +101,12 @@ class SerialNumberAgent:
         location_record = self._best_document_record(
             asset_record.asset_id if asset_record else query.asset_id or query.image_id,
             query,
-            set_name="b2",
+            set_name="b1",
         )
         series_record = self._best_document_record(
             asset_record.asset_id if asset_record else query.asset_id or query.image_id,
             query,
-            set_name="b1",
+            set_name="b2",
         )
         if not series_record:
             merged_asset = _merge_asset_context(asset_record, location_record)
@@ -111,7 +115,7 @@ class SerialNumberAgent:
             parts = [f"Extracted serial number: {extracted_serial}"]
             if location or guide:
                 parts.append(f"Location guide: {guide or location}")
-            parts.append("No matching asset found in Qdrant set b1. Add the serial number series first.")
+            parts.append("No matching asset found in Qdrant set b2. Add the serial number series first.")
             return LookupResult(
                 found=False,
                 message=". ".join(parts),
@@ -120,7 +124,8 @@ class SerialNumberAgent:
                 verified=False,
             )
 
-        merged_asset = _merge_asset_context(asset_record, series_record or location_record)
+        merged_asset = _merge_asset_context(asset_record, location_record)
+        merged_asset = _merge_asset_context(merged_asset, series_record)
         verification = verify_serial_number(extracted_serial, series_record.serial_number_series)
         message = build_verification_message(
             asset=merged_asset or series_record,
@@ -317,9 +322,9 @@ def _filter_records_for_set(records: list[AssetRecord], set_name: str) -> list[A
     if set_name == "a":
         return records
     if set_name == "b1":
-        return [record for record in records if _has_series_text(record)]
-    if set_name == "b2":
         return [record for record in records if _has_location_text(record)]
+    if set_name == "b2":
+        return [record for record in records if _has_series_text(record)]
     return records
 
 
@@ -357,6 +362,14 @@ def _merge_asset_context(asset_context: Optional[AssetRecord], serial_record: Op
             "ai_attributes",
             "source_pdf",
             "source_page",
+        ]:
+            value = getattr(asset_context, field_name)
+            if value and not getattr(merged, field_name):
+                setattr(merged, field_name, value)
+        for field_name in [
+            "serial_number_location",
+            "serial_number_series",
+            "serial_number_guide",
         ]:
             value = getattr(asset_context, field_name)
             if value and not getattr(merged, field_name):

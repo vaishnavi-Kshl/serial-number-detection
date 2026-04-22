@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+import uuid
 from typing import Any, Dict, List, Optional, Protocol
 
 from .models import AssetQuery, AssetRecord
@@ -13,6 +14,8 @@ class SerialRepository(Protocol):
     def upsert_b1(self, record: AssetRecord) -> None: ...
 
     def upsert_b2(self, record: AssetRecord) -> None: ...
+
+    def upsert_collection(self, collection_name: str, record: AssetRecord) -> None: ...
 
     def get_set_a(self, asset_id: str) -> Optional[AssetRecord]: ...
 
@@ -44,6 +47,7 @@ class InMemorySerialRepository:
     a_records: Dict[str, AssetRecord] = field(default_factory=dict)
     b1_records: Dict[str, AssetRecord] = field(default_factory=dict)
     b2_records: Dict[str, AssetRecord] = field(default_factory=dict)
+    collection_records: Dict[str, Dict[str, AssetRecord]] = field(default_factory=dict)
 
     def upsert_set_a(self, record: AssetRecord) -> None:
         prepared = _prepare_record_for_set(record, "a")
@@ -63,6 +67,9 @@ class InMemorySerialRepository:
             return
         self.b2_records[prepared.asset_id] = prepared
 
+    def upsert_collection(self, collection_name: str, record: AssetRecord) -> None:
+        self.collection_records.setdefault(collection_name, {})[record.asset_id] = record
+
     def upsert(self, record: AssetRecord) -> None:
         if record.record_set == "a":
             self.upsert_set_a(record)
@@ -73,9 +80,9 @@ class InMemorySerialRepository:
         else:
             if _has_asset_text(record) and not _has_serial_text(record):
                 self.upsert_set_a(record)
-            if record.serial_number_series:
-                self.upsert_b1(record)
             if record.serial_number_location or record.serial_number_guide:
+                self.upsert_b1(record)
+            if record.serial_number_series:
                 self.upsert_b2(record)
 
     def get_set_a(self, asset_id: str) -> Optional[AssetRecord]:
@@ -156,6 +163,9 @@ class QdrantSerialRepository:
     def upsert_b2(self, record: AssetRecord) -> None:
         self._upsert(self.b2_collection, record, "b2")
 
+    def upsert_collection(self, collection_name: str, record: AssetRecord) -> None:
+        self._upsert_collection(collection_name, record)
+
     def upsert(self, record: AssetRecord) -> None:
         if record.record_set == "a":
             self.upsert_set_a(record)
@@ -166,12 +176,14 @@ class QdrantSerialRepository:
         else:
             if _has_asset_text(record) and not _has_serial_text(record):
                 self.upsert_set_a(record)
-            if record.serial_number_series:
-                self.upsert_b1(record)
             if record.serial_number_location or record.serial_number_guide:
+                self.upsert_b1(record)
+            if record.serial_number_series:
                 self.upsert_b2(record)
 
     def get_set_a(self, asset_id: str) -> Optional[AssetRecord]:
+        if not _is_valid_point_id(asset_id) or not self._collection_exists(self.set_a_collection):
+            return None
         points = self.client.retrieve(
             collection_name=self.set_a_collection,
             ids=[asset_id],
@@ -181,6 +193,8 @@ class QdrantSerialRepository:
         return AssetRecord.from_payload(points[0].payload or {}) if points else None
 
     def get_b1(self, asset_id: str) -> Optional[AssetRecord]:
+        if not _is_valid_point_id(asset_id) or not self._collection_exists(self.b1_collection):
+            return None
         points = self.client.retrieve(
             collection_name=self.b1_collection,
             ids=[asset_id],
@@ -190,6 +204,8 @@ class QdrantSerialRepository:
         return AssetRecord.from_payload(points[0].payload or {}) if points else None
 
     def get_b2(self, asset_id: str) -> Optional[AssetRecord]:
+        if not _is_valid_point_id(asset_id) or not self._collection_exists(self.b2_collection):
+            return None
         points = self.client.retrieve(
             collection_name=self.b2_collection,
             ids=[asset_id],
@@ -199,21 +215,33 @@ class QdrantSerialRepository:
         return AssetRecord.from_payload(points[0].payload or {}) if points else None
 
     def find_b1_by_document_id(self, document_id: str) -> List[AssetRecord]:
+        if not self._collection_exists(self.b1_collection):
+            return []
         return self._find_document_candidates(self.b1_collection, document_id)
 
     def find_b2_by_document_id(self, document_id: str) -> List[AssetRecord]:
+        if not self._collection_exists(self.b2_collection):
+            return []
         return self._find_document_candidates(self.b2_collection, document_id)
 
     def find_set_a_by_document_id(self, document_id: str) -> List[AssetRecord]:
+        if not self._collection_exists(self.set_a_collection):
+            return []
         return self._find_document_candidates(self.set_a_collection, document_id)
 
     def find_set_a_candidates(self, query: AssetQuery) -> List[AssetRecord]:
+        if not self._collection_exists(self.set_a_collection):
+            return []
         return self._find_candidates(self.set_a_collection, query)
 
     def find_b1_candidates(self, query: AssetQuery) -> List[AssetRecord]:
+        if not self._collection_exists(self.b1_collection):
+            return []
         return self._find_candidates(self.b1_collection, query)
 
     def find_b2_candidates(self, query: AssetQuery) -> List[AssetRecord]:
+        if not self._collection_exists(self.b2_collection):
+            return []
         return self._find_candidates(self.b2_collection, query)
 
     def best_b1(self, query: AssetQuery) -> Optional[AssetRecord]:
@@ -229,20 +257,23 @@ class QdrantSerialRepository:
         return candidates[0] if candidates else None
 
     def _upsert(self, collection_name: str, record: AssetRecord, record_set: str) -> None:
-        self._ensure_collection(collection_name)
-        from qdrant_client.models import PointStruct
-
         prepared = _prepare_record_for_set(record, record_set)
         if prepared is None:
             return
+        self._upsert_collection(collection_name, prepared)
+
+    def _upsert_collection(self, collection_name: str, record: AssetRecord) -> None:
+        self._ensure_collection(collection_name)
+        from qdrant_client.models import PointStruct
+
         vector_size = self._collection_vector_size(collection_name)
         self.client.upsert(
             collection_name=collection_name,
             points=[
                 PointStruct(
-                    id=prepared.asset_id,
+                    id=record.asset_id,
                     vector=_dummy_vector(vector_size),
-                    payload=prepared.to_payload(),
+                    payload=record.to_payload(),
                 )
             ],
         )
@@ -255,6 +286,8 @@ class QdrantSerialRepository:
         return [record for record in self._all_records(collection_name) if record.document_id == document_id]
 
     def _all_records(self, collection_name: str) -> List[AssetRecord]:
+        if not self._collection_exists(collection_name):
+            return []
         out: List[AssetRecord] = []
         offset = None
         while True:
@@ -301,6 +334,9 @@ class QdrantSerialRepository:
 
         self._vector_sizes[collection_name] = self.DEFAULT_VECTOR_SIZE
         return self.DEFAULT_VECTOR_SIZE
+
+    def _collection_exists(self, collection_name: str) -> bool:
+        return self.client.collection_exists(collection_name)
 
 
 def _rank(records, query: AssetQuery) -> List[AssetRecord]:
@@ -354,22 +390,22 @@ def _prepare_record_for_set(record: AssetRecord, record_set: str) -> Optional[As
         )
         return prepared
     if record_set == "b1":
-        if not record.serial_number_series:
-            return None
-        prepared = replace(
-            record,
-            record_set="b1",
-            serial_number_location=None,
-            serial_number_guide=None,
-        )
-        return prepared
-    if record_set == "b2":
         if not record.serial_number_location and not record.serial_number_guide:
             return None
         prepared = replace(
             record,
-            record_set="b2",
+            record_set="b1",
             serial_number_series=None,
+        )
+        return prepared
+    if record_set == "b2":
+        if not record.serial_number_series:
+            return None
+        prepared = replace(
+            record,
+            record_set="b2",
+            serial_number_location=None,
+            serial_number_guide=None,
         )
         return prepared
     raise ValueError(f"Unknown record set: {record_set}")
@@ -410,6 +446,16 @@ def _extract_vector_size(vectors: Any) -> Optional[int]:
             if size:
                 return size
     return None
+
+
+def _is_valid_point_id(point_id: Optional[str]) -> bool:
+    if not point_id:
+        return False
+    try:
+        uuid.UUID(str(point_id))
+    except (TypeError, ValueError, AttributeError):
+        return False
+    return True
 
 
 # Backward-compatible aliases.
